@@ -1,0 +1,6 @@
+{
+  "enabledMcpjsonServers": [
+    "ssh-udm"
+  ],
+  "enableAllProjectMcpServers": true
+}

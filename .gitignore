@@ -1,0 +1,40 @@
+# Virtual Environment
+.venv/
+venv/
+*.venv
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# IDE / Editor folders
+.vscode/
+.idea/
+.project
+.settings/
+
+# OS-specific
+.DS_Store
+Thumbs.db
+
+# Build artifacts
+dist/
+build/
+*.egg-info/
+
+# Logs and temp files
+/aida_*.log
+/tmp/aida_*.log
+*.log
+
+# Claude/Anthropic files
+.claude/
+aida/.claude/
+
+# Test artifacts
+pytest_cache/
+.pytest_cache/
+htmlcov/
+.coverage
+.tox/
