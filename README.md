@@ -10,7 +10,7 @@ Aida is built with Python and PySide6, leveraging local AI models via Ollama and
 
 | Main Window | Settings Dialog (General) | Settings Dialog (Mail & Calendar) | Settings Dialog (Home Assistant) |
 |---|---|---|---|
-| ![Main Window](screenshots/Screenshot_20260105_171110.png) | ![Settings General](aida/screenshots/Screenshot_20260105_171211.png) | ![Settings Mail Calendar](aida/screenshots/Screenshot_20260105_171247.png) | ![Settings Home Assistant](aida/screenshots/Screenshot_20260105_171341.png) |
+| ![Main Window](screenshots/Screenshot_20260105_171110.png) | ![Settings General](screenshots/Screenshot_20260105_171211.png) | ![Settings Mail Calendar](screenshots/Screenshot_20260105_171247.png) | ![Settings Home Assistant](screenshots/Screenshot_20260105_171341.png) |
 
 ## ✨ Features
 
