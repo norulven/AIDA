@@ -9,7 +9,6 @@ from src.core.config import AidaConfig
 from src.ai.llm import OllamaLLM
 from src.speech.stt import WhisperSTT
 from src.speech.tts import PiperTTS
-from src.speech.edge_tts import EdgeTTS
 from src.speech.wakeword import WakeWordListener
 from src.actions.browser import BrowserControllerSync
 from src.actions.search import WebSearch
@@ -111,15 +110,12 @@ class AidaAssistant(QObject):
         return self._stt
 
     @property
-    def tts(self):
+    def tts(self) -> PiperTTS:
         if self._tts is None:
-            if self.config.tts_provider == "edge":
-                self._tts = EdgeTTS(voice=self.config.edge_tts.voice)
-            else:
-                self._tts = PiperTTS(
-                    self.config.piper,
-                    speaker_device=self.config.audio.speaker_device,
-                )
+            self._tts = PiperTTS(
+                self.config.piper,
+                speaker_device=self.config.audio.speaker_device,
+            )
         return self._tts
 
     @property
