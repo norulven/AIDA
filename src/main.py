@@ -2,14 +2,39 @@
 """Aida - AI Desktop Assistant for KDE Plasma."""
 
 import sys
+import threading
 from PySide6.QtWidgets import QApplication
-from PySide6.QtCore import Slot
+from PySide6.QtCore import Slot, QThread
 
 from src.core.config import AidaConfig
 from src.core.assistant import AidaAssistant
 from src.ui.main_window import MainWindow
 from src.ui.tray import TrayIcon
 from src.ui.settings_dialog import SettingsDialog
+from src.ui.tasks_window import TasksWindow
+
+# API Server imports
+import uvicorn
+from src.api.server import app as api_app, set_assistant_instance
+
+
+class ApiServerThread(QThread):
+    """Runs the FastAPI/Uvicorn server in a separate thread."""
+    
+    def __init__(self, host="0.0.0.0", port=8085):
+        super().__init__()
+        self.host = host
+        self.port = port
+        self.server = None
+
+    def run(self):
+        """Start the Uvicorn server."""
+        # We need to run uvicorn in a way that doesn't block signal handling too aggressively
+        # or we just use the standard run() since we are in a QThread.
+        try:
+            uvicorn.run(api_app, host=self.host, port=self.port, log_level="info")
+        except Exception as e:
+            print(f"Server error: {e}")
 
 
 class AidaApp:
@@ -25,6 +50,15 @@ class AidaApp:
 
         # Initialize components
         self.assistant = AidaAssistant(self.config)
+        
+        # Connect Assistant to API Server
+        set_assistant_instance(self.assistant)
+        
+        # Start API Server
+        self.api_thread = ApiServerThread(host="0.0.0.0", port=8085)
+        self.api_thread.start()
+        print("API Server started on http://0.0.0.0:8085")
+
         self.main_window = MainWindow()
         self.tray = TrayIcon()
 
@@ -50,6 +84,7 @@ class AidaApp:
         self.tray.quit_requested.connect(self._quit)
         self.tray.toggle_listening.connect(self.assistant.toggle_listening)
         self.tray.settings_requested.connect(self._show_settings)
+        self.tray.tasks_requested.connect(self._show_tasks)
 
     @Slot()
     def _on_wake_word(self) -> None:
@@ -111,6 +146,21 @@ class AidaApp:
         dialog.settings_changed.connect(self._on_settings_changed)
 
         dialog.exec()
+
+    @Slot()
+    def _show_tasks(self) -> None:
+        """Show the tasks window."""
+        # Ensure tasks system is initialized
+        if not self.config.tasks.enabled:
+            self.tray.show_message("Aida", "Tasks are disabled in settings.")
+            return
+
+        try:
+            store = self.assistant.tasks.store
+            dialog = TasksWindow(store, self.main_window)
+            dialog.exec()
+        except Exception as e:
+            self.tray.show_message("Aida", f"Could not open tasks: {e}")
 
     @Slot()
     def _on_settings_changed(self) -> None:

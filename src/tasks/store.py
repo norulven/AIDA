@@ -37,6 +37,9 @@ class TaskStore(QObject):
         ha_list_name: str | None = None,
     ) -> Task:
         """Create a new task."""
+        if not isinstance(priority, Priority):
+            priority = Priority(priority)
+
         now = datetime.now()
 
         with self.db.connection() as conn:

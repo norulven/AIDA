@@ -18,6 +18,7 @@ from src.actions.rss import RSSFetcher
 from src.actions.mail import MailClient
 from src.actions.calendar import CalendarClient
 from src.actions.home_assistant import HomeAssistantClient
+from src.actions.food import add_recipe_to_kitchen, get_inventory_list, get_meal_plan, add_meal_to_plan, get_recipes_list, get_recipe_details, import_recipe_from_url, scan_receipt
 from src.vision.camera import Camera
 from src.vision.windows import WindowManager
 
@@ -98,7 +99,34 @@ class AidaAssistant(QObject):
     def llm(self) -> OllamaLLM:
         if self._llm is None:
             self._llm = OllamaLLM(self.config.ollama)
+            # Register tools
+            self._llm.register_tool(add_recipe_to_kitchen)
+            self._llm.register_tool(get_inventory_list)
+            self._llm.register_tool(get_meal_plan)
+            self._llm.register_tool(add_meal_to_plan)
+            self._llm.register_tool(get_recipes_list)
+            self._llm.register_tool(get_recipe_details)
+            self._llm.register_tool(import_recipe_from_url)
+            self._llm.register_tool(scan_receipt)
+            
+            # Register core tools
+            self._llm.register_tool(self.web_search)
+            self._llm.register_tool(self.get_latest_news)
         return self._llm
+
+    def web_search(self, query: str) -> str:
+        """Søker på internett etter svar på et spørsmål eller informasjon.
+        
+        Args:
+            query: Søketermen eller spørsmålet du vil finne svar på.
+        """
+        return self._fetch_info(query)
+
+    def get_latest_news(self) -> str:
+        """Henter de siste nyhetene fra konfigurerte RSS-feeder eller et generelt nyhetssøk."""
+        if self.config.rss.enabled and self.config.rss.feeds:
+            return self.rss.fetch_all_feeds(self.config.rss.feeds)
+        return self._fetch_info("siste nyheter")
 
     @property
     def stt(self) -> WhisperSTT:
@@ -266,8 +294,13 @@ class AidaAssistant(QObject):
         """Handle wake word listener error."""
         self.status_changed.emit(f"Wake word error: {error}")
 
-    def process_message(self, message: str) -> str:
-        """Process a user message and return response."""
+    def process_message(self, message: str, speak: bool = True) -> str:
+        """Process a user message and return response.
+        
+        Args:
+            message: The user's input text.
+            speak: Whether to speak the response aloud (server-side).
+        """
         # Ensure we aren't listening while processing/speaking
         self.stop_listening()
         
@@ -276,7 +309,7 @@ class AidaAssistant(QObject):
 
         # Check for conversation end commands
         if self._check_end_conversation(message):
-            return self._end_conversation()
+            return self._end_conversation(speak=speak)
 
         # Get memory context before processing
         if self.config.memory.enabled and self._memory is not None:
@@ -293,7 +326,7 @@ class AidaAssistant(QObject):
             if task_response:
                 self.status_changed.emit("Ready")
                 self.response_ready.emit(task_response)
-                if self.speak_responses:
+                if self.speak_responses and speak:
                     self.speak_async(task_response, continue_listening=self._in_conversation)
                 return task_response
 
@@ -313,9 +346,9 @@ class AidaAssistant(QObject):
         self.response_ready.emit(response)
 
         # Speak the response (and continue listening after if in conversation)
-        if self.speak_responses:
+        if self.speak_responses and speak:
             self.speak_async(response, continue_listening=self._in_conversation)
-        elif self._in_conversation:
+        elif self._in_conversation and speak:
             # No TTS, start listening immediately
             from PySide6.QtCore import QTimer
             QTimer.singleShot(500, self.start_listening)
@@ -332,7 +365,7 @@ class AidaAssistant(QObject):
         message_lower = message.lower().strip()
         return any(phrase in message_lower for phrase in end_phrases)
 
-    def _end_conversation(self) -> str:
+    def _end_conversation(self, speak: bool = True) -> str:
         """End the current conversation."""
         self._in_conversation = False
 
@@ -351,7 +384,7 @@ class AidaAssistant(QObject):
         response = "Goodbye! Say 'Aida' when you need me again."
         self.response_ready.emit(response)
 
-        if self.speak_responses:
+        if self.speak_responses and speak:
             self.speak_async(response)
 
         self.status_changed.emit(f"Listening for '{self.config.wake_word}'...")
@@ -517,7 +550,27 @@ class AidaAssistant(QObject):
             filename = match.group(2).strip()
             return self._research_and_save(topic, filename)
 
-        # RSS feed command
+        # "Get latest news" - use configured RSS feeds
+        news_patterns = [
+            r"(?:get|fetch|check|read|show)(?: me)?(?: the)? (?:latest |recent )?news",
+            r"(?:latest|recent) news",
+            r"what(?:'s| is) (?:the )?(?:latest |recent )?news",
+            r"(?:hva|vis)(?: er)?(?: siste)? nyhet(?:er|ene)?",
+            r"siste nytt",
+            r"check my feeds",
+            r"read my feeds",
+        ]
+
+        for pattern in news_patterns:
+            if re.search(pattern, message_lower):
+                # Use configured feeds if available
+                if self.config.rss.enabled and self.config.rss.feeds:
+                    self.status_changed.emit("Fetching news feeds...")
+                    return self.rss.fetch_all_feeds(self.config.rss.feeds)
+                # Fall through to web search if no feeds configured
+                break
+
+        # RSS feed command (specific URL)
         rss_pattern = r"(?:fetch|get|check|åpne) (?:the )?rss (?:feed )?(?:from |at )?(\S+)"
         match = re.search(rss_pattern, message_lower)
         if match:
@@ -539,12 +592,55 @@ class AidaAssistant(QObject):
             return self._check_calendar()
 
         # Home Assistant commands
-        ha_control_pattern = r"(?:turn|switch) (on|off) (?:the )?(.+)"
-        match = re.search(ha_control_pattern, message_lower)
-        if match:
-            state = match.group(1).strip()
-            device_name = match.group(2).strip()
-            return self._control_ha_device(device_name, state)
+        if self.config.ha.enabled:
+            # List devices
+            ha_list_pattern = r"(?:list|show) (?:all )?(?:ha|home assistant) (?:devices|entities)"
+            if re.search(ha_list_pattern, message_lower):
+                return self._list_ha_devices()
+
+            # Check state/status (Boolean check: "Is X on?")
+            # Matches: "Is kitchen light on?", "Is the garage door open?"
+            ha_check_bool_pattern = r"^is (?:the )?(.+) (on|off|open|closed|locked|unlocked)\?*$"
+            match = re.search(ha_check_bool_pattern, message_lower)
+            if match:
+                 device = match.group(1).strip()
+                 expected_state = match.group(2).strip()
+                 return self._check_ha_device_state(device, expected_state)
+
+            # Check general status
+            # Matches: "What's the temperature in X", "Check status of X", "How is X"
+            ha_status_patterns = [
+                r"(?:what(?:'s|\s+is)|check) (?:the )?(?:status|state|temperature|humidity|level) (?:of|for|in|at) (?:the )?(.+)",
+                r"(?:what(?:'s|\s+is)|check) (?:the )?(.+) (?:status|state|temperature|humidity|level)",
+                r"how is (?:the )?(.+)(?: doing)?\?*$"
+            ]
+            
+            for pattern in ha_status_patterns:
+                match = re.search(pattern, message_lower)
+                if match:
+                     device = match.group(1).strip()
+                     return self._check_ha_device_state(device)
+
+            # Control commands
+            # Matches: "Turn on X", "Turn X on", "Switch off X"
+            ha_control_patterns = [
+                r"(?:turn|switch) (on|off) (?:the )?(.+)",
+                r"(?:turn|switch) (?:the )?(.+) (on|off)"
+            ]
+            
+            for pattern in ha_control_patterns:
+                match = re.search(pattern, message_lower)
+                if match:
+                    # Group ordering depends on pattern
+                    if match.lastindex == 2:
+                        # Pattern 1: command (1) device (2) OR Pattern 2: device (1) command (2)
+                        if pattern == ha_control_patterns[0]:
+                            state = match.group(1).strip()
+                            device_name = match.group(2).strip()
+                        else:
+                            device_name = match.group(1).strip()
+                            state = match.group(2).strip()
+                        return self._control_ha_device(device_name, state)
 
         # Fetch/lookup command (without opening browser)
         fetch_patterns = [
@@ -671,11 +767,15 @@ class AidaAssistant(QObject):
         if context.startswith("Sorry"):
             return context
 
-        prompt = f"""Based on this information I found:
+        prompt = f"""Based on the information provided below, answer the following question: "{query}"
 
+Information:
 {context}
 
-Please give a concise summary answering: {query}"""
+Instructions:
+1. If the answer is contained in the information above, provide a concise summary.
+2. If the information does NOT contain the answer or is irrelevant, state clearly: "I could not find information about '{query}' in the search results."
+3. Do NOT make up facts or use outside knowledge to fill in gaps. Only use the provided information."""
         
         logger.info(f"Sending prompt to LLM (Context length: {len(context)})")
         response = self.llm.chat(prompt)
@@ -799,6 +899,74 @@ Please give a concise summary answering: {query}"""
                 return f"Sorry, I failed to turn {state} the {device_name}."
         else:
             return f"I found the {device_name}, but I don't know how to turn it {state}."
+
+    def _list_ha_devices(self) -> str:
+        """Lists available Home Assistant devices."""
+        self.status_changed.emit("Listing Home Assistant devices...")
+        if not self.config.ha.enabled:
+            return "Home Assistant integration is not enabled."
+
+        entities = self.ha.get_all_entities()
+        if not entities:
+            return "I couldn't find any entities or couldn't connect to Home Assistant."
+
+        # Filter for interesting domains
+        interesting_domains = ["light", "switch", "sensor", "binary_sensor", "climate", "lock", "cover", "media_player"]
+        filtered = [e for e in entities if e.get('domain') in interesting_domains]
+        
+        if not filtered:
+             return "I connected, but found no interesting devices to control."
+
+        # Group by domain
+        summary = ["Here are some devices I found:"]
+        by_domain = {}
+        for e in filtered:
+            d = e.get('domain')
+            if d not in by_domain:
+                by_domain[d] = []
+            name = e.get('attributes', {}).get('friendly_name', e['entity_id'])
+            by_domain[d].append(name)
+
+        for d, names in by_domain.items():
+            # Limit to 5 per domain to avoid spamming
+            names_display = ", ".join(names[:5])
+            if len(names) > 5:
+                names_display += f", and {len(names)-5} more"
+            summary.append(f"{d.title()}s: {names_display}")
+
+        return "\n".join(summary)
+
+    def _check_ha_device_state(self, device_name: str, expected_state: str | None = None) -> str:
+        """Checks the state of a Home Assistant device."""
+        self.status_changed.emit(f"Checking {device_name}...")
+        if not self.config.ha.enabled:
+            return "Home Assistant integration is not enabled."
+
+        entity_id = self.ha.find_entity_by_name(device_name)
+        if not entity_id:
+            return f"Sorry, I couldn't find a device named '{device_name}'."
+
+        state_data = self.ha.get_device_state(entity_id)
+        if not state_data:
+            return f"I found {device_name} ({entity_id}), but couldn't read its state."
+
+        state = state_data.get('state')
+        attributes = state_data.get('attributes', {})
+        unit = attributes.get('unit_of_measurement', '')
+        friendly_name = attributes.get('friendly_name', device_name)
+
+        # Format the answer
+        state_str = f"{state}{' ' + unit if unit else ''}"
+        
+        if expected_state:
+            # Normalize for comparison
+            is_match = state.lower() == expected_state.lower()
+            if is_match:
+                return f"Yes, the {friendly_name} is {state_str}."
+            else:
+                return f"No, the {friendly_name} is actually {state_str}."
+        
+        return f"The {friendly_name} is currently {state_str}."
 
     def _save_last_response(self, filename: str) -> str:
         """Saves the last assistant response to a file."""

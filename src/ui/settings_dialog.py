@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
     QWidget,
     QLineEdit,
     QCheckBox,
+    QListWidget,
 )
 from PySide6.QtCore import Signal
 
@@ -25,6 +26,32 @@ class SettingsDialog(QDialog):
     """Settings dialog for configuring Aida."""
 
     settings_changed = Signal()
+
+    # Language presets
+    _presets = {
+        "English": {
+            "whisper_lang": "en",
+            "piper_voice": "en_US-amy-medium",
+            "prompt": """You are Aida, a helpful AI desktop assistant.
+You help users with tasks like web searches, opening applications, and answering questions.
+Be concise and friendly.
+
+CRITICAL INSTRUCTION: You must NOT hallucinate or make up information. If you do not know the answer to a question, or if you cannot verify the state of a device (like a light or door) because you lack access, simply state that you do not know or cannot check. Do not guess.
+
+You have access to the user's webcam and can see them when they ask. If someone asks you to see them, look at them, describe what you see, or any vision-related request - you CAN do this. The system will capture an image for you to analyze."""
+        },
+        "Norwegian": {
+            "whisper_lang": "no",
+            "piper_voice": "no_NO-talesyntese-medium",
+            "prompt": """Du er Aida, en hjelpsom AI-skrivebordsassistent.
+Du hjelper brukere med oppgaver som nettsøk, åpning av applikasjoner og å svare på spørsmål.
+Vær kortfattet og vennlig.
+
+KRITISK INSTRUKSJON: Du må IKKE hallusinere eller finne på informasjon. Hvis du ikke vet svaret på et spørsmål, eller hvis du ikke kan bekrefte tilstanden til en enhet (som et lys eller en dør) fordi du mangler tilgang, si ganske enkelt at du ikke vet eller ikke kan sjekke. Ikke gjett.
+
+Du har tilgang til brukerens webkamera og kan se dem når de spør. Hvis noen ber deg om å se dem, se på dem, beskriv hva du ser, eller andre synsrelaterte forespørsler - du KAN gjøre dette. Systemet vil ta et bilde du kan analysere."""
+        }
+    }
 
     def __init__(self, config: AidaConfig, parent=None):
         super().__init__(parent)
@@ -51,6 +78,20 @@ class SettingsDialog(QDialog):
         general_tab = QWidget()
         general_layout = QVBoxLayout(general_tab)
         general_layout.setSpacing(15)
+
+        # Language Settings
+        lang_group = QGroupBox("Language")
+        lang_layout = QFormLayout()
+        
+        self._lang_combo = QComboBox()
+        self._lang_combo.addItem("Custom", None)
+        for lang in self._presets.keys():
+            self._lang_combo.addItem(lang, lang)
+        self._lang_combo.currentIndexChanged.connect(self._on_language_changed)
+        lang_layout.addRow("Preset:", self._lang_combo)
+        
+        lang_group.setLayout(lang_layout)
+        general_layout.addWidget(lang_group)
 
         # LLM Settings
         llm_group = QGroupBox("LLM Settings")
@@ -148,6 +189,43 @@ class SettingsDialog(QDialog):
         
         self.tabs.addTab(ha_tab, "Home Assistant")
 
+        # --- RSS Feeds Tab ---
+        rss_tab = QWidget()
+        rss_layout = QVBoxLayout(rss_tab)
+        rss_layout.setSpacing(10)
+
+        self._rss_enabled = QCheckBox("Enable RSS Feeds")
+        rss_layout.addWidget(self._rss_enabled)
+
+        rss_layout.addWidget(QLabel("Configured news feeds:"))
+
+        self._rss_list = QListWidget()
+        self._rss_list.setMinimumHeight(150)
+        rss_layout.addWidget(self._rss_list)
+
+        # Add feed controls
+        add_feed_layout = QHBoxLayout()
+        self._rss_name_edit = QLineEdit()
+        self._rss_name_edit.setPlaceholderText("Feed name (e.g. VG Nyheter)")
+        add_feed_layout.addWidget(self._rss_name_edit)
+
+        self._rss_url_edit = QLineEdit()
+        self._rss_url_edit.setPlaceholderText("Feed URL")
+        add_feed_layout.addWidget(self._rss_url_edit)
+
+        self._rss_add_btn = QPushButton("Add")
+        self._rss_add_btn.clicked.connect(self._add_rss_feed)
+        add_feed_layout.addWidget(self._rss_add_btn)
+
+        rss_layout.addLayout(add_feed_layout)
+
+        self._rss_remove_btn = QPushButton("Remove Selected")
+        self._rss_remove_btn.clicked.connect(self._remove_rss_feed)
+        rss_layout.addWidget(self._rss_remove_btn)
+
+        rss_layout.addStretch()
+        self.tabs.addTab(rss_tab, "RSS Feeds")
+
         # Buttons
         button_layout = QHBoxLayout()
         button_layout.addStretch()
@@ -194,8 +272,38 @@ class SettingsDialog(QDialog):
         elif self.config.ollama.vision_model in self._available_models:
             self._vision_model_combo.setCurrentText(self.config.ollama.vision_model)
 
+    def _on_language_changed(self, index: int) -> None:
+        """Handle language preset change."""
+        lang = self._lang_combo.itemData(index)
+        if not lang or lang not in self._presets:
+            return
+
+        preset = self._presets[lang]
+        self._prompt_edit.setPlainText(preset["prompt"])
+        
+        # We store the other settings temporarily, applied on save
+        # Could also update UI for voice if we had a voice selector exposed here
+        
     def _load_current_settings(self) -> None:
         """Load current settings into the UI."""
+        # Check if current settings match a preset
+        current_whisper = self.config.whisper.language
+        current_prompt = self.config.ollama.system_prompt
+        
+        found_preset = False
+        for lang, preset in self._presets.items():
+            if (preset["whisper_lang"] == current_whisper and 
+                preset["prompt"].strip() == current_prompt.strip()):
+                
+                index = self._lang_combo.findData(lang)
+                if index >= 0:
+                    self._lang_combo.setCurrentIndex(index)
+                    found_preset = True
+                break
+        
+        if not found_preset:
+             self._lang_combo.setCurrentIndex(0) # Custom
+
         # System prompt
         self._prompt_edit.setPlainText(self.config.ollama.system_prompt)
         
@@ -214,6 +322,12 @@ class SettingsDialog(QDialog):
         self._ha_enabled.setChecked(self.config.ha.enabled)
         self._ha_url_edit.setText(self.config.ha.url)
         self._ha_token_edit.setText(self.config.ha.token)
+
+        # RSS settings
+        self._rss_enabled.setChecked(self.config.rss.enabled)
+        self._rss_list.clear()
+        for feed in self.config.rss.feeds:
+            self._rss_list.addItem(f"{feed['name']} - {feed['url']}")
 
         # Refresh device lists
         self._refresh_devices()
@@ -263,6 +377,15 @@ class SettingsDialog(QDialog):
 
         self.config.ollama.system_prompt = self._prompt_edit.toPlainText()
 
+        # Apply language preset settings if selected
+        lang = self._lang_combo.currentData()
+        if lang and lang in self._presets:
+            preset = self._presets[lang]
+            self.config.whisper.language = preset["whisper_lang"]
+            # Only update Piper voice if using Piper
+            if self.config.tts_provider == "piper":
+                self.config.piper.voice = preset["piper_voice"]
+
         self.config.audio.microphone_device = self._mic_combo.currentData()
         self.config.audio.speaker_device = self._speaker_combo.currentData()
         
@@ -289,6 +412,18 @@ class SettingsDialog(QDialog):
         self.config.ha.url = self._ha_url_edit.text().strip()
         self.config.ha.token = self._ha_token_edit.text()
 
+        # RSS config
+        self.config.rss.enabled = self._rss_enabled.isChecked()
+        # Rebuild feeds list from QListWidget
+        feeds = []
+        for i in range(self._rss_list.count()):
+            item_text = self._rss_list.item(i).text()
+            # Parse "Name - URL" format
+            if " - " in item_text:
+                name, url = item_text.split(" - ", 1)
+                feeds.append({"name": name, "url": url})
+        self.config.rss.feeds = feeds
+
         # Save to file
         self.config.save()
 
@@ -296,3 +431,25 @@ class SettingsDialog(QDialog):
         self.settings_changed.emit()
 
         self.accept()
+
+    def _add_rss_feed(self) -> None:
+        """Add a new RSS feed to the list."""
+        name = self._rss_name_edit.text().strip()
+        url = self._rss_url_edit.text().strip()
+
+        if not name or not url:
+            return
+
+        # Add https:// if missing
+        if not url.startswith(("http://", "https://")):
+            url = f"https://{url}"
+
+        self._rss_list.addItem(f"{name} - {url}")
+        self._rss_name_edit.clear()
+        self._rss_url_edit.clear()
+
+    def _remove_rss_feed(self) -> None:
+        """Remove the selected RSS feed from the list."""
+        current_row = self._rss_list.currentRow()
+        if current_row >= 0:
+            self._rss_list.takeItem(current_row)

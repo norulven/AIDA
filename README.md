@@ -18,7 +18,7 @@ Aida is built with Python and PySide6, leveraging local AI models via Ollama and
 - **Local First AI:**
     - **LLM:** Powered by any model running in **Ollama** (e.g., Llama3, Mistral).
     - **STT:** Local, real-time speech-to-text using **`faster-whisper`**.
-    - **TTS:** High-quality, natural-sounding offline text-to-speech with **PiperTTS**, or online with **Microsoft Edge TTS**.
+    - **TTS:** High-quality, natural-sounding offline text-to-speech with **PiperTTS**.
 - **Web Intelligence:**
     - **Browser Automation:** Opens pages, performs searches, and fetches information using Playwright.
     - **Web Fetching:** Can read and summarize content from web pages and RSS feeds.
@@ -29,6 +29,19 @@ Aida is built with Python and PySide6, leveraging local AI models via Ollama and
 - **Smart Home & Services:**
     - **Home Assistant:** Control your smart devices (lights, switches) with voice commands.
     - **Mail & Calendar (IMAP/CalDAV):** Check unread emails and view today's calendar events from providers like Gmail.
+- **Task Management:**
+    - **To-Do Lists:** Create, edit, and manage tasks with priorities and due dates.
+    - **Home Assistant Sync:** Synchronize tasks with Home Assistant to-do lists.
+    - **Reminders:** Set reminders for tasks with voice patterns recognition.
+- **Kitchen & Meal Planning:**
+    - **Receipt Scanning:** Scan grocery receipts with your webcam to automatically add items to inventory.
+    - **Recipe Management:** Import recipes from websites, store them, and retrieve detailed instructions.
+    - **Inventory Tracking:** Keep track of food items in your kitchen.
+    - **Meal Planning:** Plan meals for specific days and check what's on the menu.
+- **REST API & Web Interface:**
+    - **FastAPI Server:** RESTful API running on port 8085 for remote access.
+    - **Web Client:** Mobile-friendly web interface for chat and image analysis.
+    - **Vision API:** Send images for AI analysis from mobile devices.
 - **Customizable:** A comprehensive settings dialog allows you to configure models, devices, and integrations.
 
 ## 🚀 Getting Started
@@ -72,12 +85,28 @@ You can configure Aida through the **Settings** dialog (accessible from the tray
 **Important Notes:**
 - **Gmail:** For Gmail integration, you must generate an **App Password** as Google no longer allows direct password logins for less secure apps.
 - **Home Assistant:** You need to generate a **Long-Lived Access Token** from your Home Assistant profile page.
+- **Kitchen Features:** The kitchen and meal planning features require a separate [Aida-Kitchen](https://github.com/your-username/aida-kitchen) server running on `http://localhost:8000`. This is optional and the assistant will work without it.
 
 ## 🗣️ Usage
+
+### Desktop Application
 
 - **Wake Word:** Say "Aida" to activate listening.
 - **Mic Button:** Click the microphone icon in the main window or tray to toggle listening.
 - **Text Input:** Type commands directly into the chat box.
+- **Tasks Window:** Access from the tray icon menu to manage your to-do list.
+
+### Web Interface & API
+
+Aida includes a built-in REST API server that starts automatically with the application:
+
+- **Web Client:** Navigate to `http://localhost:8085` in your browser for a mobile-friendly chat interface
+- **API Documentation:** The API server runs on port 8085 with the following endpoints:
+  - `POST /api/chat` - Send text messages to Aida
+  - `POST /api/vision` - Send images for AI analysis
+  - `GET /api/status` - Check if Aida is ready
+
+This makes it easy to interact with Aida from mobile devices on your local network.
 
 ### Example Commands
 
@@ -95,6 +124,31 @@ You can configure Aida through the **Settings** dialog (accessible from the tray
 - **Mail & Calendar:**
     - "Check my email"
     - "What's on my calendar today?"
+- **Tasks:**
+    - "Add a task to buy groceries"
+    - "Show my tasks"
+    - "Remind me to call mom tomorrow"
+- **Kitchen & Food:**
+    - "Scan this receipt" (hold receipt to webcam)
+    - "What's in my inventory?"
+    - "Import recipe from [URL]"
+    - "What's for dinner today?"
+    - "Add chicken to meal plan for tomorrow"
+    - "Show me the recipe for pancakes"
+
+## 🏗️ Architecture
+
+Aida is built with a modular architecture:
+
+- **Core:** Assistant logic, configuration management, and audio device handling
+- **AI:** LLM interaction via Ollama, with support for both chat and vision models
+- **Speech:** Real-time STT with faster-whisper, TTS with PiperTTS, and wake word detection
+- **Vision:** Screen capture and webcam integration for visual context
+- **Actions:** Modular action system for browser automation, file management, mail, calendar, Home Assistant, and kitchen integration
+- **Tasks:** Full task management system with SQLite storage and Home Assistant synchronization
+- **Memory:** Conversation history, facts storage, and context management with embeddings
+- **API:** FastAPI-based REST API for remote access and web client
+- **UI:** PySide6-based GUI with main window, system tray, settings dialog, and tasks window
 
 ## 🤝 Contributing
 

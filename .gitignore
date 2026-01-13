@@ -22,6 +22,8 @@ Thumbs.db
 dist/
 build/
 *.egg-info/
+*.tar.gz
+*_build/
 
 # Logs and temp files
 /aida_*.log
@@ -33,8 +35,19 @@ build/
 aida/.claude/
 
 # Test artifacts
+
 pytest_cache/
+
 .pytest_cache/
+
 htmlcov/
+
 .coverage
+
 .tox/
+
+
+
+# Claude/Agent files
+
+CLAUDE.md

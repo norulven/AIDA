@@ -1,8 +1,7 @@
 """RSS feed fetching for Aida."""
 
 import logging
-import httpx
-from bs4 import BeautifulSoup
+import feedparser
 from dataclasses import dataclass
 from typing import List, Optional
 
@@ -26,43 +25,87 @@ class RSSFetcher:
 
     def __init__(self, timeout: float = 10.0):
         self.timeout = timeout
-        self.headers = {
-            "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-        }
+        # Default feeds if configuration is missing
+        self.default_feeds = [
+            {"name": "NRK", "url": "https://www.nrk.no/toppsaker.rss"},
+            {"name": "VG", "url": "https://www.vg.no/rss/feed/?categories=1068&keywords=&limit=10"}
+        ]
 
     def fetch_feed(self, url: str, limit: int = 5) -> str:
         """Fetch an RSS feed and return a summary string."""
         logger.info(f"Fetching RSS feed: {url}")
         try:
-            with httpx.Client(timeout=self.timeout, follow_redirects=True) as client:
-                response = client.get(url, headers=self.headers)
-                response.raise_for_status()
+            feed = feedparser.parse(url)
+            
+            if feed.bozo and feed.bozo_exception:
+                logger.warning(f"Feedparser reported issue: {feed.bozo_exception}")
 
-                # Parse XML
-                soup = BeautifulSoup(response.text, "xml")
-                
-                # Check for atom or rss
-                items = soup.find_all("item") or soup.find_all("entry")
-                
-                if not items:
-                    return f"I found the feed at {url}, but it seems to have no news items."
+            if not feed.entries:
+                return f"I found the feed at {url}, but it seems to have no news items."
 
-                feed_title = soup.find("title").text if soup.find("title") else "RSS Feed"
-                
-                results = [f"Latest news from {feed_title}:"]
-                
-                for item in items[:limit]:
-                    title = item.find("title").text if item.find("title") else "No title"
-                    link = item.find("link").text if item.find("link") else ""
-                    # handle atom links which might be in href attribute
-                    if not link and item.find("link"):
-                        link = item.find("link").get("href", "")
-                    
-                    results.append(f"- {title}")
-                
-                logger.info(f"Successfully parsed {len(results)-1} items from {url}")
-                return "\n".join(results) + "\n\nWould you like me to open one of these or summarize the full content?"
+            feed_title = feed.feed.get("title", "RSS Feed")
+            
+            results = [f"Latest news from {feed_title}:"]
+            
+            for entry in feed.entries[:limit]:
+                title = entry.get("title", "No title")
+                # link = entry.get("link", "")
+                results.append(f"- {title}")
+            
+            logger.info(f"Successfully parsed {len(results)-1} items from {url}")
+            return "\n".join(results) + "\n\nVil du at jeg skal lese mer om en av disse?"
 
         except Exception as e:
             logger.error(f"Failed to fetch RSS feed {url}: {e}")
             return f"Sorry, I couldn't fetch the RSS feed from {url}. Error: {e}"
+
+    def fetch_all_feeds(self, feeds: list[dict], limit_per_feed: int = 3) -> str:
+        """Fetch headlines from all configured feeds.
+
+        Args:
+            feeds: List of {"name": str, "url": str} dicts
+            limit_per_feed: Max items per feed
+
+        Returns:
+            Formatted string with news grouped by feed name
+        """
+        # Fallback to defaults if list is empty
+        feeds_to_use = feeds if feeds else self.default_feeds
+
+        if not feeds_to_use:
+             return "No RSS feeds configured and no defaults available."
+
+        logger.info(f"Fetching {len(feeds_to_use)} feeds")
+        results = ["Her er siste nytt:\n"]
+
+        for feed_config in feeds_to_use:
+            name = feed_config.get("name", "Unknown")
+            url = feed_config.get("url", "")
+
+            if not url:
+                continue
+
+            try:
+                feed = feedparser.parse(url)
+                
+                # Check for parsing errors but try to proceed if entries exist
+                if feed.bozo and not feed.entries:
+                     logger.warning(f"Failed to parse {name}: {feed.bozo_exception}")
+                     results.append(f"**{name}:** (klarte ikke lese feed)")
+                     continue
+
+                if feed.entries:
+                    results.append(f"**{name}:**")
+                    for entry in feed.entries[:limit_per_feed]:
+                        title = entry.get("title", "Uten tittel")
+                        results.append(f"  - {title}")
+                    results.append("")  # Empty line between feeds
+                else:
+                    results.append(f"**{name}:** (ingen saker funnet)")
+
+            except Exception as e:
+                logger.error(f"Failed to fetch {name} ({url}): {e}")
+                results.append(f"**{name}:** (feilet: {str(e)[:20]}...)")
+                results.append("")
+
+        return "\n".join(results)

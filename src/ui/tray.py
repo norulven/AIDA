@@ -12,6 +12,7 @@ class TrayIcon(QObject):
     activated = Signal()
     quit_requested = Signal()
     settings_requested = Signal()
+    tasks_requested = Signal()
     toggle_listening = Signal()
 
     def __init__(self, parent=None):
@@ -39,6 +40,11 @@ class TrayIcon(QObject):
         menu.addAction(self._listen_action)
 
         menu.addSeparator()
+
+        # Tasks action
+        tasks_action = QAction("Tasks", menu)
+        tasks_action.triggered.connect(self.tasks_requested.emit)
+        menu.addAction(tasks_action)
 
         # Settings action
         settings_action = QAction("Settings", menu)

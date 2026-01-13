@@ -34,14 +34,21 @@ class OllamaConfig:
     """Ollama LLM configuration."""
 
     host: str = "http://localhost:11434"
-    model: str = "dolphin-llama3:8b"
+    model: str = "llama3.1:8b"
     vision_model: str = "llava:7b"
     temperature: float = 0.7
-    system_prompt: str = """You are Aida, a helpful AI desktop assistant.
-You help users with tasks like web searches, opening applications, and answering questions.
-Be concise and friendly. When asked to perform actions, confirm what you're doing.
+    system_prompt: str = """Du er Aida, en kraftfull AI-assistent.
+Du har FULL TILGANG til internett via dine verktøy. 
 
-You have access to the user's webcam and can see them when they ask. If someone asks you to see them, look at them, describe what you see, or any vision-related request - you CAN do this. The system will capture an image for you to analyze."""
+Dine evner:
+1. NYHETER: Du MÅ bruke 'get_latest_news' for å hente ekte nyheter fra NRK og VG. Aldri si at du ikke kan lese nyheter.
+2. NETTSØK: Bruk 'web_search' for alt du ikke vet.
+3. SYNSINN: Du kan se via mobilkamera og webkamera.
+
+Når brukeren spør om nyheter:
+- Kall 'get_latest_news'.
+- Oppsummer de viktigste sakene du finner i resultatet.
+- Vær konkret og gi ekte overskrifter."""
 
 
 @dataclass
@@ -50,7 +57,7 @@ class WhisperConfig:
 
     model_size: str = "base"  # tiny, base, small, medium, large
     device: str = "auto"  # auto, cpu, cuda
-    language: str = "en"
+    language: str = "no"
     beam_size: int = 5
 
 
@@ -58,7 +65,7 @@ class WhisperConfig:
 class PiperConfig:
     """Piper TTS configuration."""
 
-    voice: str = "en_US-amy-medium"
+    voice: str = "no_NO-talesyntese-medium"
     speed: float = 1.0
     data_dir: Path = field(default_factory=lambda: Path.home() / ".local/share/piper")
 
@@ -109,6 +116,17 @@ class AudioConfig:
 
 
 @dataclass
+class RSSConfig:
+    """RSS feeds configuration."""
+
+    enabled: bool = True
+    feeds: list = field(default_factory=lambda: [
+        {"name": "NRK Toppsaker", "url": "https://www.nrk.no/toppsaker.rss"},
+        {"name": "VG Forsiden", "url": "https://www.vg.no/rss/feed/?categories=1068&keywords=&limit=10"}
+    ])
+
+
+@dataclass
 class AidaConfig:
     """Main Aida configuration."""
 
@@ -122,7 +140,8 @@ class AidaConfig:
     audio: AudioConfig = field(default_factory=AudioConfig)
     memory: MemoryConfig = field(default_factory=MemoryConfig)
     tasks: TaskConfig = field(default_factory=TaskConfig)
-    
+    rss: RSSConfig = field(default_factory=RSSConfig)
+
     tts_provider: str = "piper"
     wake_word: str = "aida"
     wake_word_enabled: bool = True
@@ -194,6 +213,10 @@ class AidaConfig:
                 "auto_sync_ha": self.tasks.auto_sync_ha,
                 "default_ha_list": self.tasks.default_ha_list,
             },
+            "rss": {
+                "enabled": self.rss.enabled,
+                "feeds": self.rss.feeds,
+            },
             "wake_word": self.wake_word,
             "wake_word_enabled": self.wake_word_enabled,
             "tts_provider": self.tts_provider,
@@ -237,6 +260,8 @@ class AidaConfig:
                 config.memory = MemoryConfig(**memory_data)
             if "tasks" in data:
                 config.tasks = TaskConfig(**data["tasks"])
+            if "rss" in data:
+                config.rss = RSSConfig(**data["rss"])
             if "wake_word" in data:
                 config.wake_word = data["wake_word"]
             if "wake_word_enabled" in data:

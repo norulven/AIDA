@@ -71,25 +71,57 @@ class HomeAssistantClient:
         except Exception as e:
             logger.error(f"Failed to call service {domain}.{service}: {e}")
             return False
-            
-    def find_entity_by_name(self, friendly_name_query: str) -> Optional[str]:
-        """Finds an entity's ID by its friendly name."""
+
+    def get_all_entities(self) -> List[Dict]:
+        """Gets a flat list of all available entities."""
         if not self._ensure_connected():
-            return None
-        
-        friendly_name_query = friendly_name_query.lower()
-        
+            return []
+
+        all_entities = []
         try:
             entities = self.client.get_entities()
             for group in entities.values():
                 for entity in group.values():
-                    friendly_name = entity.state.attributes.get("friendly_name", "").lower()
-                    if friendly_name_query in friendly_name:
-                        logger.info(f"Found entity '{entity.entity_id}' for query '{friendly_name_query}'")
-                        return entity.entity_id
+                    # Add useful metadata
+                    data = entity.state.as_dict()
+                    data['entity_id'] = entity.entity_id
+                    data['domain'] = entity.domain
+                    all_entities.append(data)
+            return all_entities
+        except Exception as e:
+            logger.error(f"Error getting entities: {e}")
+            return []
+
+    def search_entities(self, query: str) -> List[Dict]:
+        """Search for entities by name or ID."""
+        query = query.lower()
+        matches = []
+        
+        for entity in self.get_all_entities():
+            entity_id = entity.get('entity_id', '').lower()
+            friendly_name = entity.get('attributes', {}).get('friendly_name', '').lower()
             
+            if query in entity_id or query in friendly_name:
+                matches.append(entity)
+                
+        return matches
+
+    def find_entity_by_name(self, friendly_name_query: str) -> Optional[str]:
+        """Finds an entity's ID by its friendly name."""
+        matches = self.search_entities(friendly_name_query)
+        
+        if not matches:
             logger.warning(f"No entity found for query: {friendly_name_query}")
             return None
-        except Exception as e:
-            logger.error(f"Error finding entity: {e}")
-            return None
+            
+        # If exact match on friendly name, prefer that
+        for entity in matches:
+            if entity.get('attributes', {}).get('friendly_name', '').lower() == friendly_name_query.lower():
+                logger.info(f"Found exact match '{entity['entity_id']}' for '{friendly_name_query}'")
+                return entity['entity_id']
+                
+        # Otherwise return the first match (assumed best guess)
+        # TODO: Could add smarter ranking/fuzzy matching here
+        best_match = matches[0]
+        logger.info(f"Found entity '{best_match['entity_id']}' for query '{friendly_name_query}'")
+        return best_match['entity_id']
